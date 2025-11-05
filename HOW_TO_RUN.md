@@ -1,5 +1,3 @@
-# 🚀 How to Run Yarnsy
-
 ## Step-by-Step Instructions
 
 ### **Step 1: Install Dependencies**
@@ -156,4 +154,5 @@ Once both servers are running:
 - ✅ Frontend: http://localhost:3000
 
 Browse to http://localhost:3000 and start exploring Yarnsy! 🧶
+
 
