@@ -306,4 +306,9 @@ if __name__ == '__main__':
     print("Press Ctrl+C to stop the server")
     print("="*60 + "\n")
     
-    app.run(host='0.0.0.0', debug=True, port=5000)
+    # Use environment variable to control debug mode (default: True for development)
+    # Set FLASK_DEBUG=False in production
+    import os
+    debug_mode = os.getenv('FLASK_DEBUG', 'True').lower() in ('true', '1', 'yes')
+    
+    app.run(host='0.0.0.0', debug=debug_mode, port=5000)
