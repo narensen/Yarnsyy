@@ -1,3 +1,8 @@
+# DEPRECATED: This file is no longer used.
+# The application now loads products from CSV (new_products.csv) instead of MongoDB.
+# See app.py for the new CSV-based implementation.
+
+# Previous MongoDB implementation (kept for reference)
 from pymongo import MongoClient
 import os
 from dotenv import load_dotenv

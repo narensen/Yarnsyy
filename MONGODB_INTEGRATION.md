@@ -1,5 +1,13 @@
 # MongoDB Integration Guide
 
+> **⚠️ DEPRECATED NOTICE**  
+> **This document is now outdated.** The Yarnsy application has been updated to use CSV-based product storage instead of MongoDB.  
+> Products are loaded from `new_products.csv` and stored in-memory. Cart functionality uses localStorage on the frontend.  
+> See `app.py` for the current CSV-based implementation.  
+> This file is kept for historical reference only.
+
+---
+
 ## 📋 Overview
 
 This guide outlines how to integrate MongoDB with the Yarnsy e-commerce website. The current implementation uses in-memory data structures, but MongoDB will provide persistent storage for products, orders, users, and more.
