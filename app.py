@@ -3,6 +3,7 @@ from flask_cors import CORS
 from datetime import datetime, timedelta
 import csv
 import random
+import os
 
 app = Flask(__name__)
 CORS(app)
@@ -11,16 +12,19 @@ CORS(app)
 # CSV-based product loading (No MongoDB)
 # -------------------------------------------------------------------
 
-def load_csv_products(filename='new_products.csv'):
+# Maximum number of products to load from CSV
+MAX_PRODUCTS = 12
+
+def load_csv_products(filename='new_products.csv', max_products=MAX_PRODUCTS):
     """Load products from CSV file and enrich with additional fields"""
     products = []
     
     with open(filename, 'r', encoding='utf-8') as file:
         csv_reader = csv.DictReader(file)
         for row in csv_reader:
-            # Only load first 12 products as specified
+            # Only load up to max_products
             product_id = int(row['id'])
-            if product_id > 12:
+            if product_id > max_products:
                 break
                 
             # Extract color from product name
@@ -223,7 +227,7 @@ def manage_cart():
 
 @app.route('/api/connection-status', methods=['GET'])
 def connection_status():
-    """Return MongoDB connection status (always disconnected when using CSV)"""
+    """Return data source connection status (CSV-based)"""
     return jsonify({
         'connected': False,
         'message': 'Using CSV data (No MongoDB)',
@@ -308,7 +312,6 @@ if __name__ == '__main__':
     
     # Use environment variable to control debug mode (default: True for development)
     # Set FLASK_DEBUG=False in production
-    import os
     debug_mode = os.getenv('FLASK_DEBUG', 'True').lower() in ('true', '1', 'yes')
     
     app.run(host='0.0.0.0', debug=debug_mode, port=5000)
