@@ -1,27 +1,70 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from datetime import datetime, timedelta
-# Import the database connection
-from database import db
-# Import this to handle MongoDB's _id
-from bson.json_util import dumps
-import json
+import csv
+import random
+import os
 
 app = Flask(__name__)
 CORS(app)
 
 # -------------------------------------------------------------------
-# WE NO LONGER NEED THIS:
-# - load_csv_products (function)
-# - INITIAL_PRODUCTS (list)
-# - initialize_products (function)
-# - PRODUCTS = initialize_products() (global variable)
-# Your database is now the single source of truth.
+# CSV-based product loading (No MongoDB)
 # -------------------------------------------------------------------
+
+# Maximum number of products to load from CSV
+MAX_PRODUCTS = 12
+
+def load_csv_products(filename='new_products.csv', max_products=MAX_PRODUCTS):
+    """Load products from CSV file and enrich with additional fields"""
+    products = []
+    
+    with open(filename, 'r', encoding='utf-8') as file:
+        csv_reader = csv.DictReader(file)
+        for row in csv_reader:
+            # Only load up to max_products
+            product_id = int(row['id'])
+            if product_id > max_products:
+                break
+                
+            # Extract color from product name
+            name = row['name']
+            color = extract_color(name)
+            
+            # Create enriched product
+            product = {
+                'id': product_id,
+                'name': name,
+                'price': float(row['price']),
+                'image': row['image'],
+                'category': row.get('category', 'other').lower(),
+                'color': color,
+                'description': f"Beautiful handcrafted {name.lower()}. Made with love and premium yarn.",
+                'popular': product_id in [1, 2, 5, 8],  # Mark some as popular
+                'new': product_id in [10, 11, 12],  # Mark recent ones as new
+            }
+            products.append(product)
+    
+    return products
+
+def extract_color(name):
+    """Extract color from product name"""
+    name_lower = name.lower()
+    colors = ['lavender', 'midnight', 'blush', 'pink', 'emerald', 'green', 
+              'ocean', 'blue', 'sunset', 'orange', 'cream', 'purple', 
+              'rose', 'gold', 'sage', 'buttercream', 'indigo']
+    
+    for color in colors:
+        if color in name_lower:
+            return color.capitalize()
+    
+    return 'Natural'
+
+# Load products from CSV on startup
+PRODUCTS = load_csv_products()
 
 
 # Sample orders data (in production, this would also be in a database)
-# I've updated the image URLs to be hardcoded since the 'PRODUCTS' list is gone.
 ORDERS = [
     {
         'id': 1,
@@ -59,16 +102,9 @@ ORDERS = [
     },
 ]
 
-# Helper function to convert MongoDB docs to JSON
-# This removes the non-serializable '_id' field
-def mongo_to_json(data):
-    # Use bson.json_util.dumps to handle MongoDB types like ObjectId
-    # Then reload it as a standard Python dict/list
-    return json.loads(dumps(data))
-
 @app.route('/api/products', methods=['GET'])
 def get_products():
-    """Get all products or filtered products from MongoDB"""
+    """Get all products or filtered products from in-memory list"""
     
     # Get filter parameters
     category = request.args.get('category')
@@ -78,63 +114,52 @@ def get_products():
     min_price = float(request.args.get('min_price', 0))
     max_price = float(request.args.get('max_price', float('inf')))
     
-    # --- CHANGED: Start building a MongoDB query filter ---
-    query_filter = {
-        'price': {'$gte': min_price, '$lte': max_price}
-    }
+    # Filter products
+    filtered_products = PRODUCTS.copy()
     
+    # Apply filters
     if category:
-        query_filter['category'] = category
+        filtered_products = [p for p in filtered_products if p['category'] == category]
+    
     if color:
-        query_filter['color'] = color
+        filtered_products = [p for p in filtered_products if p['color'].lower() == color.lower()]
+    
     if search:
-        query_filter['$or'] = [
-            {'name': {'$regex': search, '$options': 'i'}},
-            {'description': {'$regex': search, '$options': 'i'}},
-            {'category': {'$regex': search, '$options': 'i'}},
+        filtered_products = [
+            p for p in filtered_products 
+            if search in p['name'].lower() 
+            or search in p['description'].lower() 
+            or search in p['category'].lower()
         ]
     
-    # --- CHANGED: Set sorting direction ---
-    sort_field = 'name'
-    sort_order = 1  # 1 for ascending, -1 for descending
+    # Apply price filter
+    filtered_products = [
+        p for p in filtered_products 
+        if min_price <= p['price'] <= max_price
+    ]
     
+    # Apply sorting
     if sort_by == 'price':
-        sort_field = 'price'
+        filtered_products.sort(key=lambda p: p['price'])
     elif sort_by == 'newest':
-        sort_field = 'id' # Assuming higher IDs are newer
-        sort_order = -1
+        filtered_products.sort(key=lambda p: p['id'], reverse=True)
+    else:  # name
+        filtered_products.sort(key=lambda p: p['name'])
     
-    # --- CHANGED: Fetch from MongoDB ---
-    # .find() returns a 'cursor' (an iterable)
-    # We pass the filter and sort parameters
-    products_cursor = db.products.find(query_filter).sort(sort_field, sort_order)
+    # Get filter metadata
+    all_categories = sorted(list(set(p['category'] for p in PRODUCTS)))
+    all_colors = sorted(list(set(p['color'] for p in PRODUCTS if p['color'])))
     
-    # Convert the cursor to a list
-    products = list(products_cursor)
+    prices = [p['price'] for p in PRODUCTS]
+    price_range = {'min': min(prices) if prices else 0, 'max': max(prices) if prices else 0}
     
-    # --- CHANGED: Get filters metadata from the database ---
-    # This is more efficient than iterating in Python
-    all_categories = db.products.distinct('category')
-    all_colors = db.products.distinct('color')
-    # Remove empty strings if they exist
-    all_colors = [c for c in all_colors if c] 
-    
-    # Get min/max price from all products, not just filtered ones
-    price_agg = list(db.products.aggregate([
-        {'$group': {'_id': None, 'min': {'$min': '$price'}, 'max': {'$max': '$price'}}}
-    ]))
-    
-    price_range = {'min': 0, 'max': 0}
-    if price_agg:
-        price_range = {'min': price_agg[0]['min'], 'max': price_agg[0]['max']}
-
-    # Add metadata
+    # Build response
     response = {
-        'products': mongo_to_json(products), # Convert Mongo data to JSON
-        'total': len(products),
+        'products': filtered_products,
+        'total': len(filtered_products),
         'filters': {
-            'categories': sorted(all_categories),
-            'colors': sorted(all_colors),
+            'categories': all_categories,
+            'colors': all_colors,
             'price_range': price_range
         }
     }
@@ -143,57 +168,53 @@ def get_products():
 
 @app.route('/api/products/<int:product_id>', methods=['GET'])
 def get_product(product_id):
-    """Get a specific product by ID from MongoDB"""
+    """Get a specific product by ID from in-memory list"""
     
-    # --- CHANGED: Fetch one product from MongoDB ---
-    # We use 'id' (our numeric ID) not '_id' (MongoDB's ObjectId)
-    product = db.products.find_one({'id': product_id})
+    product = next((p for p in PRODUCTS if p['id'] == product_id), None)
     
     if product:
-        return jsonify(mongo_to_json(product))
+        return jsonify(product)
     return jsonify({'error': 'Product not found'}), 404
 
 @app.route('/api/products/<int:product_id>/details', methods=['GET'])
 def get_product_details(product_id):
-    """Get detailed product information from MongoDB"""
+    """Get detailed product information from in-memory list"""
     
-    # --- CHANGED: Fetch main product from MongoDB ---
-    product = db.products.find_one({'id': product_id})
+    product = next((p for p in PRODUCTS if p['id'] == product_id), None)
     
     if not product:
         return jsonify({'error': 'Product not found'}), 404
     
-    # --- CHANGED: Find related products from MongoDB ---
-    related_cursor = db.products.find({
-        'category': product['category'], 
-        'id': {'$ne': product_id} # $ne means 'not equal'
-    }).limit(4)
-    
-    related = list(related_cursor)
+    # Find related products (same category, different ID)
+    related = [
+        p for p in PRODUCTS 
+        if p['category'] == product['category'] and p['id'] != product_id
+    ][:4]  # Limit to 4 related products
     
     return jsonify({
-        'product': mongo_to_json(product),
-        'related': mongo_to_json(related)
+        'product': product,
+        'related': related
     })
 
 @app.route('/api/recommendations', methods=['GET'])
 def get_recommendations():
-    """Get product recommendations from MongoDB"""
+    """Get product recommendations from in-memory list"""
     
-    # --- CHANGED: Fetch recommendations from MongoDB ---
-    # Find products that are popular OR new
-    # Use $sample to efficiently get random documents
-    pipeline = [
-        {'$match': {'$or': [{'popular': True}, {'new': True}]}},
-        {'$sample': {'size': 4}}
-    ]
-    recommendations = list(db.products.aggregate(pipeline))
+    # Get products that are popular or new
+    candidates = [p for p in PRODUCTS if p.get('popular') or p.get('new')]
     
-    return jsonify(mongo_to_json(recommendations))
+    # If we have candidates, pick up to 4 random ones
+    if candidates:
+        recommendations = random.sample(candidates, min(4, len(candidates)))
+    else:
+        # Fallback to random products
+        recommendations = random.sample(PRODUCTS, min(4, len(PRODUCTS)))
+    
+    return jsonify(recommendations)
 
 @app.route('/api/cart', methods=['GET', 'POST', 'DELETE'])
 def manage_cart():
-    """Manage cart operations"""
+    """Manage cart operations (cart is managed in localStorage on frontend)"""
     if request.method == 'GET':
         return jsonify({'items': [], 'total': 0})
     
@@ -203,6 +224,15 @@ def manage_cart():
     
     if request.method == 'DELETE':
         return jsonify({'success': True, 'message': 'Item removed from cart'})
+
+@app.route('/api/connection-status', methods=['GET'])
+def connection_status():
+    """Return data source connection status (CSV-based)"""
+    return jsonify({
+        'connected': False,
+        'message': 'Using CSV data (No MongoDB)',
+        'dataSource': 'CSV'
+    })
 
 @app.route('/api/orders', methods=['GET'])
 def get_orders():
@@ -247,44 +277,41 @@ def index():
     """Root endpoint for API health check"""
     return jsonify({
         'status': 'online',
-        'message': 'Connected to Yarnsy API (MongoDB Version)',
+        'message': 'Connected to Yarnsy API (CSV Version - No MongoDB)',
+        'dataSource': 'CSV',
+        'productCount': len(PRODUCTS),
         'endpoints': [
             '/api/products',
             '/api/products/<id>',
             '/api/products/<id>/details',
-            '/api/recommendations'
+            '/api/recommendations',
+            '/api/connection-status'
         ]
     })
 
 if __name__ == '__main__':
-    print("\nStarting Yarnsy API server (MongoDB)...")
+    print("\n" + "="*60)
+    print("Starting Yarnsy API server (CSV Version - No MongoDB)")
+    print("="*60)
     
-    # --- CHANGED: Check MongoDB connection on startup ---
-    try:
-        # Use the more robust client-level admin command for ping
-        db.client.admin.command('ping')
-        
-        print("✅ MongoDB connection successful.")
-        product_count = db.products.count_documents({})
-        print(f"Loaded {product_count} products from database.")
-        
-        print("\nAvailable endpoints:")
-        print("  - http://localhost:5000/")
-        print("  - http://localhost:5000/api/products")
-        print("  - http://localhost:5000/api/recommendations")
-        print("\nPress Ctrl+C to stop the server")
-        
-        # Run the app *only* if the connection is successful
-        app.run(host='0.0.0.0', debug=True, port=5000)
-        
-    except Exception as e:
-        # THIS IS THE NEW, BETTER ERROR MESSAGE
-        print(f"❌ ERROR: Could not connect to MongoDB.")
-        print("\n==================== ERROR DETAILS ====================")
-        print(f"Details: {e}")
-        print("=======================================================")
-        print("\nPlease check the following:")
-        print("  1. Is your MongoDB server running?")
-        print("  2. Is your .env file correct? (MONGODB_URI=\"mongodb://127.0.0.1:27017/yarnsydb\")")
-        print("  3. Are there any firewall rules blocking the connection?")
-        exit(1) # Exit the script
+    print(f"\n✅ Loaded {len(PRODUCTS)} products from CSV file")
+    print(f"   Products: {', '.join([p['name'] for p in PRODUCTS[:3]])}...")
+    
+    print("\n📡 Available endpoints:")
+    print("  - http://localhost:5000/")
+    print("  - http://localhost:5000/api/products")
+    print("  - http://localhost:5000/api/recommendations")
+    print("  - http://localhost:5000/api/connection-status")
+    
+    print("\n🗄️  Data Source: CSV (new_products.csv)")
+    print("💾 Cart Storage: localStorage (frontend)")
+    
+    print("\n" + "="*60)
+    print("Press Ctrl+C to stop the server")
+    print("="*60 + "\n")
+    
+    # Use environment variable to control debug mode (default: True for development)
+    # Set FLASK_DEBUG=False in production
+    debug_mode = os.getenv('FLASK_DEBUG', 'True').lower() in ('true', '1', 'yes')
+    
+    app.run(host='0.0.0.0', debug=debug_mode, port=5000)

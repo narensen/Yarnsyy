@@ -7,11 +7,18 @@ A fully responsive, modern e-commerce website for a boutique store specializing 
 - **Responsive Design**: Mobile-first approach with beautiful breakpoints
 - **Modern UI/UX**: Soft pastel boutique aesthetic with smooth animations
 - **Product Browsing**: Dynamic product grid with filtering and search
-- **Shopping Cart**: Persistent cart with real-time updates
+- **Shopping Cart**: Persistent cart with localStorage (no backend required)
 - **Checkout Flow**: Complete checkout process with order confirmation
 - **Order Tracking**: View past orders with status tracking
 - **AI Assistant**: "Meow" chat assistant for shopping help
 - **Backend API**: Flask REST API for products, orders, and recommendations
+- **CSV-Based Products**: Products loaded from CSV file (no database required)
+
+## 🗄️ Data Storage
+
+- **Products**: Loaded from `new_products.csv` (12 handcrafted items)
+- **Cart**: Managed in browser localStorage (frontend)
+- **No MongoDB Required**: Simple CSV-based product storage
 
 ## 🎨 Design Theme
 
@@ -26,6 +33,7 @@ A fully responsive, modern e-commerce website for a boutique store specializing 
 - Node.js (v16 or higher)
 - Python 3.8 or higher
 - npm or yarn
+- **No MongoDB required!**
 
 ### Installation
 
@@ -124,9 +132,15 @@ Floating chat assistant that helps with:
 
 ## 🔌 API Endpoints
 
+- `GET /` - API health check and info
 - `GET /api/products` - Get all products (with optional filtering)
 - `GET /api/products/:id` - Get specific product
+- `GET /api/products/:id/details` - Get product with related items
 - `GET /api/recommendations` - Get personalized product recommendations
+- `GET /api/connection-status` - Get data source status (CSV-based)
+- `GET /api/cart` - Get cart (managed in localStorage)
+- `POST /api/cart` - Add to cart (returns success)
+- `DELETE /api/cart` - Remove from cart (returns success)
 - `GET /api/orders` - Get user's orders
 - `GET /api/orders/:id` - Get specific order
 - `GET /api/shipping` - Get shipping/tracking info
@@ -164,7 +178,8 @@ colors: {
 ```
 
 ### Products
-Add or modify products in `app.py` in the `PRODUCTS` array.
+Add or modify products in `new_products.csv`. The first 12 products are loaded automatically.
+CSV format: `id,name,price,image,category`
 
 ## 📝 License
 
